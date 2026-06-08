@@ -1,0 +1,5 @@
+packages:
+  - "apps/cli"
+  - "apps/desktop"
+  - "packages/daemon"
+  - "packages/shared"

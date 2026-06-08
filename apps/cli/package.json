@@ -1,0 +1,30 @@
+{
+  "name": "@groundhog/cli",
+  "version": "0.1.0",
+  "description": "Ink TUI — init, status, snap, history commands; injects GCB context into AI tools",
+  "type": "module",
+  "bin": {
+    "groundhog": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.tsx",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@groundhog/shared": "workspace:*",
+    "chalk": "^5.3.0",
+    "clipboardy": "^5.3.1",
+    "commander": "^12.1.0",
+    "ink": "^4.4.1",
+    "ink-text-input": "^5.0.1",
+    "ink-use-stdout-dimensions": "^1.0.5",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.5"
+  }
+}

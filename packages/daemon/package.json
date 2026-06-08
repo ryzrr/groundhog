@@ -1,0 +1,26 @@
+{
+  "name": "@groundhog/daemon",
+  "version": "0.1.0",
+  "description": "Background daemon — chokidar file watch + git poller + shell history → AES-256 SQLite snapshots",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@groundhog/shared": "workspace:*",
+    "better-sqlite3": "^12.10.0",
+    "chokidar": "^5.0.0",
+    "simple-git": "^3.36.0",
+    "sql.js": "^1.14.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/sql.js": "^1.4.11",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.5"
+  }
+}

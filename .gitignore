@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode/settings.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Turbo cache
+.turbo/
+
+# pnpm
+pnpm-debug.log
+
+# Design exports (not source code)
+design/*.gz
+
+
+*.pdf
+

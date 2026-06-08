@@ -1,0 +1,18 @@
+{
+  "name": "groundhog-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Groundhog — Never re-explain yourself to an AI again.",
+  "packageManager": "pnpm@10.12.1",
+  "scripts": {
+    "cli": "pnpm --filter @groundhog/cli dev",
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "dev": "turbo dev"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "turbo": "^2.9.16",
+    "typescript": "^5.4.5"
+  }
+}

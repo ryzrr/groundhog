@@ -1,0 +1,9 @@
+# Groundhog Context — groundhog
+# Auto-generated — update with: groundhog snap --inject cursor
+
+[GH·groundhog·2026-06-08]
+TASK:     Working on Init
+STACK:    TypeScript
+TRIED:    pnpm cli
+NEXT:     Continue: Working on Init
+[continue from: NEXT]
