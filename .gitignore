@@ -31,3 +31,8 @@ design/*.gz
 
 *.pdf
 
+# Groundhog's own live context file
+.ground.md
+
+/checklist.md
+*.docx
