@@ -129,6 +129,13 @@ async function createAdapter(dbPath: string): Promise<DbAdapter> {
   return new SqlJsAdapter(db, dbPath);
 }
 
+// ─── Encrypted payload shape ───────────────────────────────────────────────────
+// Everything on GCBSnapshot except the three identity fields stored as plaintext
+// columns (id, project, createdAt). Typed (not an inline object literal) so that
+// adding a field to GCBSnapshot causes a compile error here if this isn't updated,
+// instead of silently dropping data at runtime.
+type SnapshotPayload = Omit<GCBSnapshot, 'id' | 'project' | 'createdAt'>;
+
 // ─── Row shapes ───────────────────────────────────────────────────────────────
 
 interface SnapshotRow {
@@ -187,15 +194,26 @@ export class Storage {
 
   saveSnapshot(snap: Omit<GCBSnapshot, 'id'>): GCBSnapshot {
     const id = crypto.randomUUID();
-    const payload = JSON.stringify({
-      task: snap.task, stack: snap.stack, resolved: snap.resolved,
-      error: snap.error, tried: snap.tried, open: snap.open,
-      next: snap.next, tokens: snap.tokens, confidence: snap.confidence,
-    });
+    const payload: SnapshotPayload = {
+      tokens:         snap.tokens,
+      confidence:     snap.confidence,
+      projectDesc:    snap.projectDesc,
+      arch:           snap.arch,
+      task:           snap.task,
+      stack:          snap.stack,
+      changed:        snap.changed,
+      recentCommits:  snap.recentCommits,
+      resolved:       snap.resolved,
+      error:          snap.error,
+      tried:          snap.tried,
+      open:           snap.open,
+      next:           snap.next,
+    };
+    const payloadJson = JSON.stringify(payload);
 
     const iv      = crypto.randomBytes(12);
     const cipher  = crypto.createCipheriv('aes-256-gcm', this.key, iv);
-    const ct      = Buffer.concat([cipher.update(payload, 'utf8'), cipher.final()]);
+    const ct      = Buffer.concat([cipher.update(payloadJson, 'utf8'), cipher.final()]);
     const authTag = cipher.getAuthTag();
 
     this.adapter.run(
@@ -258,13 +276,16 @@ export class Storage {
   }
 
   private _decryptPayload(row: Pick<SnapshotRow, 'id' | 'iv' | 'auth_tag' | 'ciphertext'>):
-    Omit<GCBSnapshot, 'id' | 'project' | 'createdAt'> | null
+    SnapshotPayload | null
   {
     try {
       const decipher = crypto.createDecipheriv('aes-256-gcm', this.key, Buffer.from(row.iv));
       decipher.setAuthTag(Buffer.from(row.auth_tag));
       const plain = decipher.update(Buffer.from(row.ciphertext)).toString('utf8') + decipher.final('utf8');
-      return JSON.parse(plain);
+      // JSON.parse returns `any` — cast is not runtime-validated; old rows saved before this
+      // fix simply lack the newer fields, which JSON.parse leaves undefined (same as today's
+      // optional-field behavior).
+      return JSON.parse(plain) as SnapshotPayload;
     } catch (err) {
       log('error', `Decrypt failed for snapshot ${row.id}: ${String(err)}`);
       return null;

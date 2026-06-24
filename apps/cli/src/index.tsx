@@ -12,6 +12,11 @@ import { Splash }  from './ui/Splash.js';
 import { Init }    from './ui/Init.js';
 import { Status }  from './ui/Status.js';
 import { Snap }    from './ui/Snap.js';
+import { Pause }   from './ui/Pause.js';
+import { Resume }  from './ui/Resume.js';
+import { Block }   from './ui/Block.js';
+import { Unblock } from './ui/Unblock.js';
+import { History } from './ui/History.js';
 import { CommandBar } from './ui/CommandBar.js';
 import { color }   from './ui/theme.js';
 import type { SepInfo } from './ui/common.js';
@@ -52,11 +57,12 @@ type Screen =
   | { id: 'welcome' }
   | { id: 'init';    sep?: SepInfo }
   | { id: 'status';  sep?: SepInfo }
-  | { id: 'snap';    sep?: SepInfo; copy?: boolean; inject?: string }
+  | { id: 'snap';    sep?: SepInfo; copy?: boolean }
   | { id: 'history'; sep?: SepInfo; query?: string }
-  | { id: 'sync';    sep?: SepInfo; project?: string }
   | { id: 'pause';   sep?: SepInfo }
-  | { id: 'block';   sep?: SepInfo; until?: string };
+  | { id: 'resume';  sep?: SepInfo }
+  | { id: 'block';   sep?: SepInfo }
+  | { id: 'unblock'; sep?: SepInfo };
 
 function parseNavCommand(raw: string): Screen {
   const parts = raw.trim().replace(/^groundhog\s+/, '').split(/\s+/);
@@ -65,22 +71,13 @@ function parseNavCommand(raw: string): Screen {
     case 'init':    return { id: 'init' };
     case 'status':  return { id: 'status' };
     case 'snap': {
-      const copy      = parts.includes('--copy');
-      const injectIdx = parts.indexOf('--inject');
-      const inject    = injectIdx >= 0 ? parts[injectIdx + 1] : undefined;
-      return { id: 'snap', copy, inject };
-    }
-    case 'sync': {
-      const projIdx = parts.indexOf('--project');
-      const project = projIdx >= 0 ? parts[projIdx + 1] : undefined;
-      return { id: 'sync', project };
+      const copy = parts.includes('--copy');
+      return { id: 'snap', copy };
     }
     case 'pause':   return { id: 'pause' };
-    case 'block': {
-      const untilIdx = parts.indexOf('--until');
-      const until    = untilIdx >= 0 ? parts[untilIdx + 1] : undefined;
-      return { id: 'block', until };
-    }
+    case 'resume':  return { id: 'resume' };
+    case 'block':   return { id: 'block' };
+    case 'unblock': return { id: 'unblock' };
     case 'history': {
       const query = parts.slice(1).join(' ') || undefined;
       return { id: 'history', query };
@@ -101,7 +98,6 @@ function labelForCommand(raw: string): string {
 function App({ initial }: { initial: Screen }) {
   const [screen,   setScreen]   = useState<Screen>(initial);
   const [isTyping, setIsTyping] = useState(false);
-  const [tick,     setTick]     = useState(0);
   const isTTY = IS_TTY;
   const { stdout }             = useStdout();
   const { isRawModeSupported } = useStdin();
@@ -109,12 +105,6 @@ function App({ initial }: { initial: Screen }) {
 
   const [columns, setColumns] = useState(stdout.columns || 80);
   const [rows,    setRows]    = useState(stdout.rows    || 24);
-
-  useEffect(() => {
-    if (!isTTY) return;
-    const id = setInterval(() => setTick(t => t + 1), 120);
-    return () => clearInterval(id);
-  }, [isTTY]);
 
   useEffect(() => {
     const onResize = () => { setColumns(stdout.columns); setRows(stdout.rows); };
@@ -149,11 +139,11 @@ function App({ initial }: { initial: Screen }) {
           {(() => {
             switch (screen.id) {
               case 'splash':
-                return <Splash tick={tick} onDone={() => setScreen({ id: 'welcome' })} />;
+                return <Splash onDone={() => setScreen({ id: 'welcome' })} />;
               case 'welcome':
                 return <Welcome isTyping={isTyping} termWidth={columns} termHeight={rows} />;
               case 'init':
-                return <Init tick={tick} sep={screen.sep} />;
+                return <Init sep={screen.sep} />;
               case 'status':
                 return (
                   <Status
@@ -164,14 +154,17 @@ function App({ initial }: { initial: Screen }) {
                   />
                 );
               case 'snap':
-                return <Snap tick={tick} copy={screen.copy} inject={screen.inject} sep={screen.sep} />;
-              default:
-                return (
-                  <PlaceholderScreen
-                    name={screen.id}
-                    onBack={() => setScreen({ id: 'welcome' })}
-                  />
-                );
+                return <Snap sep={screen.sep} />;
+              case 'pause':
+                return <Pause sep={screen.sep} />;
+              case 'resume':
+                return <Resume sep={screen.sep} />;
+              case 'block':
+                return <Block sep={screen.sep} />;
+              case 'unblock':
+                return <Unblock sep={screen.sep} />;
+              case 'history':
+                return <History sep={screen.sep} query={screen.query} />;
             }
           })()}
         </Box>
@@ -191,22 +184,6 @@ function App({ initial }: { initial: Screen }) {
 }
 
 // ─── Placeholder ──────────────────────────────────────────────────────────────
-
-function PlaceholderScreen({ name, onBack }: { name: string; onBack: () => void }) {
-  const { exit } = useApp();
-  const isTTY    = useContext(TTYContext);
-  useInput((input, key) => {
-    if (input === 'q' || key.escape) exit();
-    if (key.backspace || input === 'b') onBack();
-  }, { isActive: isTTY });
-  return (
-    <Box flexDirection="column" paddingX={2} paddingY={1}>
-      <Text color={color.amberHi} bold>groundhog {name}</Text>
-      <Text color={color.textDim}>This screen is coming soon.</Text>
-      <Box marginTop={1}><Text color={color.textFaint}>q quit  ·  b back</Text></Box>
-    </Box>
-  );
-}
 
 // ─── CLI commands ─────────────────────────────────────────────────────────────
 
@@ -232,23 +209,11 @@ program.command('status')
   });
 
 program.command('snap')
-  .description('Generate a ~180-token GCB snapshot')
-  .option('--copy', 'Copy to clipboard')
-  .option('--inject <target>', 'Inject to: cursor | claude | file')
+  .description('Compact .ground.md to its current essential state and copy to clipboard')
+  .option('--copy', 'Accepted for backward compatibility — clipboard copy always happens')
   .action((opts) => {
-    const cmd = opts.inject
-      ? `groundhog snap --inject ${opts.inject}`
-      : opts.copy ? 'groundhog snap --copy' : 'groundhog snap';
-    printSeparator(cmd);
-    render(<App initial={{ id: 'snap', copy: opts.copy, inject: opts.inject }} />);
-  });
-
-program.command('sync')
-  .description('Restore latest snapshot')
-  .option('--project <name>', 'Target project name')
-  .action((opts) => {
-    printSeparator(opts.project ? `groundhog sync --project ${opts.project}` : 'groundhog sync');
-    render(<App initial={{ id: 'sync', project: opts.project }} />);
+    printSeparator(opts.copy ? 'groundhog snap --copy' : 'groundhog snap');
+    render(<App initial={{ id: 'snap', copy: opts.copy }} />);
   });
 
 program.command('pause')
@@ -258,12 +223,25 @@ program.command('pause')
     render(<App initial={{ id: 'pause' }} />);
   });
 
+program.command('resume')
+  .description('Resume capture')
+  .action(() => {
+    printSeparator('groundhog resume');
+    render(<App initial={{ id: 'resume' }} />);
+  });
+
 program.command('block')
   .description('Kill daemon and disable all capture')
-  .option('--until <time>', 'Resume at time, e.g. 18:00')
-  .action((opts) => {
-    printSeparator(opts.until ? `groundhog block --until ${opts.until}` : 'groundhog block');
-    render(<App initial={{ id: 'block', until: opts.until }} />);
+  .action(() => {
+    printSeparator('groundhog block');
+    render(<App initial={{ id: 'block' }} />);
+  });
+
+program.command('unblock')
+  .description('Restart daemon after a block')
+  .action(() => {
+    printSeparator('groundhog unblock');
+    render(<App initial={{ id: 'unblock' }} />);
   });
 
 program.command('history')

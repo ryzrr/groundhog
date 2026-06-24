@@ -2,9 +2,10 @@ import { useState, useEffect, useContext } from 'react';
 import { Box, Text, useApp, useInput, Static } from 'ink';
 import { TTYContext } from '../index.js';
 import { color } from './theme.js';
-import { GCBFieldFull, RunSepItem, SepInfo } from './common.js';
+import { GCBFieldFull, RunSepItem, SepInfo, activityIcon, activityColor, tsAgo } from './common.js';
 import { DaemonClient, DaemonOfflineError } from '../daemon-client.js';
-import type { GCBSnapshot, DaemonState, ActivityEntry } from '@groundhog/shared';
+import { readFile } from '@groundhog/shared';
+import type { GCBSnapshot, DaemonState, ActivityEntry, ProjectInfo } from '@groundhog/shared';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -13,6 +14,7 @@ interface StatusData {
   snapshot: GCBSnapshot | null;
   history: GCBSnapshot[];
   activity: ActivityEntry[];
+  groundMd: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -25,36 +27,11 @@ function timeAgo(date: Date): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-function tsAgo(ts: number): string {
-  const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60)    return `${s}s`;
-  if (s < 3600)  return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
-}
-
-function activityIcon(e: ActivityEntry): string {
-  if (e.type === 'commit') return 'git';
-  if (e.type === 'shell')  return 'cmd';
-  if (e.kind === 'add')    return 'add';
-  if (e.kind === 'unlink') return 'del';
-  return 'chg';
-}
-
-function activityColor(e: ActivityEntry): string {
-  if (e.type === 'commit') return color.amberHi;
-  if (e.type === 'shell')  return color.textDim;
-  if (e.kind === 'add')    return color.greenHi;
-  if (e.kind === 'unlink') return color.red;
-  return color.blue;
-}
-
-const SNAP_ACTIONS = ['snap --copy', 'snap --inject cursor', 'snap --inject claude'] as const;
 
 // ─── Static content ───────────────────────────────────────────────────────────
 
 function StatusContent({ data }: { data: StatusData }) {
-  const { state, snapshot, history, activity } = data;
+  const { state, snapshot, history, activity, groundMd } = data;
   const div56 = '─'.repeat(60);
   const snap  = snapshot;
 
@@ -205,6 +182,23 @@ function StatusContent({ data }: { data: StatusData }) {
         <Text color={color.textFaint}>Then paste into Claude, Cursor, ChatGPT, or any AI — it picks up right where you left off.</Text>
       </Box>
 
+      {/* ── .ground.md panel ─────────────────────────────────────────── */}
+      {groundMd && (
+        <>
+          <Box height={1} />
+          <Box gap={2} alignItems="center">
+            <Text color={color.blue} bold>.ground.md</Text>
+            <Text color={color.textFaint}>— the file groundhog snap will compact and copy</Text>
+          </Box>
+          <Text color={color.border}>{'─'.repeat(44)}</Text>
+          <Box borderStyle="single" borderColor={color.border} paddingX={1} flexDirection="column">
+            {groundMd.split('\n').slice(0, 30).map((line, i) => (
+              <Text key={i} color={color.textDim}>{line || ' '}</Text>
+            ))}
+          </Box>
+        </>
+      )}
+
       {/* ── Live capture feed ────────────────────────────────────────── */}
       <Box height={1} />
       <Box gap={2} alignItems="center">
@@ -303,7 +297,6 @@ interface Props {
 export function Status({ sep, onSnap, onHistory, onBlock }: Props) {
   const { exit } = useApp();
   const isTTY    = useContext(TTYContext);
-  const [sel, setSel] = useState(0);
 
   type LoadState = 'loading' | 'offline' | 'ready';
   const [loadState, setLoadState] = useState<LoadState>('loading');
@@ -336,6 +329,7 @@ export function Status({ sep, onSnap, onHistory, onBlock }: Props) {
 
         let history: GCBSnapshot[] = [];
         let activity: ActivityEntry[] = [];
+        let groundMd = '';
 
         if (project) {
           try {
@@ -351,10 +345,18 @@ export function Status({ sep, onSnap, onHistory, onBlock }: Props) {
             );
             if (actResp.ok) activity = actResp.entries;
           } catch {}
+
+          try {
+            const projResp = await client.send<{ ok: true; projects: ProjectInfo[] }>(
+              { cmd: 'projects' }
+            );
+            const info = projResp.ok ? projResp.projects.find(p => p.name === project) : undefined;
+            if (info) groundMd = readFile(info.path);
+          } catch {}
         }
 
         if (cancelled) return;
-        setStatusData({ state: statusResp.state, snapshot: statusResp.snapshot, history, activity });
+        setStatusData({ state: statusResp.state, snapshot: statusResp.snapshot, history, activity, groundMd });
         setLoadState('ready');
       } catch (err) {
         if (cancelled) return;
@@ -375,10 +377,7 @@ export function Status({ sep, onSnap, onHistory, onBlock }: Props) {
     if (input === 's') { onSnap?.();    return; }
     if (input === 'h') { onHistory?.(); return; }
     if (input === 'b') { onBlock?.();   return; }
-    if (key.tab || input === '\t') {
-      setSel(s => (s + 1) % SNAP_ACTIONS.length);
-    }
-    if (key.return) { onSnap?.(); }
+    if (key.return)    { onSnap?.();    return; }
   }, { isActive: isTTY });
 
   if (loadState === 'loading') {
@@ -412,23 +411,9 @@ export function Status({ sep, onSnap, onHistory, onBlock }: Props) {
         }}
       </Static>
 
-      {/* ── Live: action chips + footer ─────────────────────────────────── */}
+      {/* ── Live: footer ──────────────────────────────────────────────── */}
       <Box flexDirection="column" paddingX={2} paddingBottom={1}>
-        <Text color={color.textFaint}>Quick actions — tab to cycle, enter to run:</Text>
-        <Box gap={0} marginTop={0}>
-          {SNAP_ACTIONS.map((label, i) => (
-            <Box
-              key={label}
-              borderStyle="single"
-              borderColor={i === sel ? color.amberHi : color.border}
-              paddingX={1}
-            >
-              <Text color={i === sel ? color.amberHi : color.textFaint} bold={i === sel}>
-                {i === sel ? `▸ ${label}` : label}
-              </Text>
-            </Box>
-          ))}
-        </Box>
+        <Text color={color.textFaint}>Quick actions — press a key, or enter to snap:</Text>
         <Text color={color.border}>{'─'.repeat(52)}</Text>
         <Box gap={3}>
           <Box gap={1}><Text color={color.amberHi} bold>s</Text><Text color={color.textDim}>snap</Text></Box>

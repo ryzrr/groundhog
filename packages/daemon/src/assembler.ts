@@ -1,6 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as path from 'node:path';
 import type { GCBSnapshot, DaemonStatus, FileEvent, GitEvent, ShellEvent, ActivityEntry } from '@groundhog/shared';
+import { appendSnapshot } from '@groundhog/shared';
 import type { Storage } from './storage.js';
 import type { ProjectRegistry } from './projects.js';
 import { extractFields, type Signals } from './extractor.js';
@@ -9,7 +10,8 @@ import { log } from './log.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const HEARTBEAT_MS   = 60_000;   // assemble every 60s
+const HEARTBEAT_MS   = 180_000;  // assemble every 3 min — matches TRD §08's combined
+                                  // extract → SQLite → .ground.md heartbeat cadence
 const PRUNE_MS       = 5 * 60_000;
 const EVENT_MAX_AGE  = 2 * 60 * 60_000;  // keep 2h of events
 const RING_MAX       = 200;               // max events per buffer
@@ -264,6 +266,12 @@ export class ContextAssembler {
       open:           fields.open,
       next:           fields.next,
     });
+
+    try {
+      appendSnapshot(projectPath, snap);
+    } catch (err) {
+      log('error', `appendSnapshot failed for ${projectName}: ${String(err)}`);
+    }
 
     this.lastHashes.set(projectPath, newHash);
     this.lastSaved.set(projectPath, now);

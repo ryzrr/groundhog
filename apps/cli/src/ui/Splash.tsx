@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
+import { TTYContext } from '../index.js';
 import { color } from './theme.js';
 
 // ─── ASCII logo ───────────────────────────────────────────────────────────────
@@ -82,10 +83,20 @@ function generateScene(tick: number): [string, string, string] {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
-// tick comes from the root App — no local setInterval here.
+// Owns its own animation timer (scoped to this screen only) — the root App no
+// longer carries a global tick, so only the screen actually animating re-renders.
 // onDone fires exactly once via a one-shot setTimeout.
 
-export function Splash({ tick, onDone }: { tick: number; onDone: () => void }) {
+export function Splash({ onDone }: { onDone: () => void }) {
+  const isTTY = useContext(TTYContext);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!isTTY) return;
+    const id = setInterval(() => setTick(t => t + 1), 120);
+    return () => clearInterval(id);
+  }, [isTTY]);
+
   useEffect(() => {
     const id = setTimeout(onDone, 2200);
     return () => clearTimeout(id);

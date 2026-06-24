@@ -1,14 +1,13 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useRef } from 'react';
 import { Box, Text, useApp, useInput, Static } from 'ink';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import * as child_process from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { TTYContext } from '../index.js';
 import { color } from './theme.js';
 import { GCBField, SPIN_FRAMES, RunSepItem, SepInfo } from './common.js';
 import { DaemonClient, DaemonOfflineError } from '../daemon-client.js';
+import { runSpawnDaemon } from '../daemon-spawn.js';
 import type { GCBSnapshot } from '@groundhog/shared';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -131,6 +130,20 @@ async function runDetect(): Promise<DetectedProject[]> {
   }));
 }
 
+function ensureGroundMdGitignored(projectPath: string): void {
+  const gitignorePath = path.join(projectPath, '.gitignore');
+  try {
+    const existing = fs.readFileSync(gitignorePath, 'utf8');
+    const alreadyIgnored = existing.split('\n').some(l => l.trim() === '.ground.md');
+    if (!alreadyIgnored) {
+      const sep = existing.length === 0 || existing.endsWith('\n') ? '' : '\n';
+      fs.writeFileSync(gitignorePath, existing + sep + '.ground.md\n');
+    }
+  } catch {
+    fs.writeFileSync(gitignorePath, '.ground.md\n');
+  }
+}
+
 async function runHooks(projects: DetectedProject[]): Promise<void> {
   const hookLine = `\n# Groundhog — auto-capture context on every commit\ngroundhog snap > /dev/null 2>&1 &\n`;
   for (const p of projects.filter(p => p.hasGit)) {
@@ -144,41 +157,9 @@ async function runHooks(projects: DetectedProject[]): Promise<void> {
       fs.writeFileSync(hookPath, `#!/bin/sh${hookLine}`);
     }
     try { fs.chmodSync(hookPath, 0o755); } catch {}
+
+    ensureGroundMdGitignored(p.path);
   }
-}
-
-function getDaemonPath(): string {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  // works for both apps/cli/src/ (dev) and apps/cli/dist/ (prod)
-  return path.resolve(here, '..', '..', '..', 'packages', 'daemon', 'dist', 'index.js');
-}
-
-async function runSpawnDaemon(): Promise<number> {
-  // If already running, return existing PID
-  const client = new DaemonClient();
-  const alive = await client.ping();
-  if (alive) {
-    const resp = await client.send({ cmd: 'status' }) as { ok: true; state: { pid: number } };
-    if (resp.ok) return resp.state.pid;
-  }
-
-  const daemonPath = getDaemonPath();
-  const child = child_process.spawn(process.execPath, [daemonPath], {
-    detached: true,
-    stdio: 'ignore',
-  });
-  child.unref();
-
-  // Poll for PID file (200ms intervals, 15s timeout)
-  const pidPath = path.join(os.homedir(), '.groundhog', 'daemon.pid');
-  for (let i = 0; i < 75; i++) {
-    await new Promise(r => setTimeout(r, 200));
-    try {
-      const pid = parseInt(fs.readFileSync(pidPath, 'utf8').trim(), 10);
-      if (!isNaN(pid) && pid > 0) return pid;
-    } catch {}
-  }
-  throw new Error('Daemon did not start within 15 seconds.');
 }
 
 async function runFirstSnap(projects: DetectedProject[]): Promise<GCBSnapshot | null> {
@@ -361,14 +342,23 @@ function CompletedPhase({ id, data }: { id: Phase; data: PhaseData }) {
 
 // ─── Init screen ─────────────────────────────────────────────────────────────
 
-export function Init({ tick, sep }: { tick: number; sep?: SepInfo }) {
+export function Init({ sep }: { sep?: SepInfo }) {
   const { exit } = useApp();
   const isTTY    = useContext(TTYContext);
+
+  // Local animation timer — scoped to this screen only (root App carries no tick).
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!isTTY) return;
+    const id = setInterval(() => setTick(t => t + 1), 120);
+    return () => clearInterval(id);
+  }, [isTTY]);
 
   const [phase, setPhase]                 = useState<Phase>('detect');
   const [doneItems, setDoneItems]         = useState<DoneItem[]>([]);
   const [showNextSteps, setShowNextSteps] = useState(false);
   const [phaseError, setPhaseError]       = useState<string | null>(null);
+  const pushedPhases = useRef<Set<Phase>>(new Set());
 
   const [phaseData, setPhaseData] = useState<PhaseData>({
     projects: [],
@@ -430,7 +420,10 @@ export function Init({ tick, sep }: { tick: number; sep?: SepInfo }) {
     function advance(current: Phase) {
       const nextIdx = PHASES.indexOf(current) + 1;
       const next    = PHASES[nextIdx] ?? 'done';
-      setDoneItems(prev => [...prev, { id: current }]);
+      if (!pushedPhases.current.has(current)) {
+        pushedPhases.current.add(current);
+        setDoneItems(prev => [...prev, { id: current }]);
+      }
       setPhase(next);
     }
 

@@ -88,6 +88,10 @@ export interface ShellEvent {
   ts: number;
 }
 
+// ─── .ground.md writer/compactor ───────────────────────────────────────────────
+
+export * from './groundFile.js';
+
 // ─── GCB text serializer ──────────────────────────────────────────────────────
 
 export function formatGCB(snap: GCBSnapshot): string {

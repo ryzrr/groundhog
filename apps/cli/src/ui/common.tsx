@@ -1,6 +1,33 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { color } from './theme.js';
+import type { ActivityEntry } from '@groundhog/shared';
+
+// ─── Activity feed helpers (shared by Status and History) ────────────────────
+
+export function tsAgo(ts: number): string {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60)    return `${s}s`;
+  if (s < 3600)  return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
+export function activityIcon(e: ActivityEntry): string {
+  if (e.type === 'commit') return 'git';
+  if (e.type === 'shell')  return 'cmd';
+  if (e.kind === 'add')    return 'add';
+  if (e.kind === 'unlink') return 'del';
+  return 'chg';
+}
+
+export function activityColor(e: ActivityEntry): string {
+  if (e.type === 'commit') return color.amberHi;
+  if (e.type === 'shell')  return color.textDim;
+  if (e.kind === 'add')    return color.greenHi;
+  if (e.kind === 'unlink') return color.red;
+  return color.blue;
+}
 
 // ─── Run separator (Ink version) ─────────────────────────────────────────────
 // Embedded as the FIRST item in each screen's own Static so it is guaranteed
